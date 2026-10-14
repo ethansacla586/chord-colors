@@ -1,5 +1,5 @@
 // Chord Colors offline cache. Change VERSION whenever you upload new files so phones pick up the update.
-const VERSION = 'chord-colors-v6';
+const VERSION = 'chord-colors-v7';
 const ASSETS = [
   "./",
   "index.html",

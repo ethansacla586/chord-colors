@@ -30,8 +30,8 @@ var DEFAULT = {
   diff:{colors:0, numbers:0, home:0, key:0, intervals:0},
   log:{},
   weeks:{start:'2026-10-12', stays:[], skips:[], u:0, notes:{}},
-  ab:{a:'maj7', b:'dom7'}, keyRow:'7', keyMode:'major',
-  progSel:'0', customProg:[], progView:'all',
+  ab:{a:'maj7', b:'dom7'}, keyRow:'m', keyMode:'major',
+  progSel:'0', customProg:[], progView:'all', mixSeed:1, mixOn:false,
   sync:{token:'', gist:'', last:0, err:''}
 };
 function fill(def, val) {
@@ -49,6 +49,8 @@ function fill(def, val) {
 var S;
 try { S = fill(DEFAULT, JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) { S = clone(DEFAULT); }
 if (!(S.root >= 0 && S.root < 12)) S.root = 0;
+// one time: progressions switch to mixed colors
+if (!S.mixOn) { S.mixOn = true; S.keyRow = 'm'; S.u = Date.now(); saveLocal(); }
 var DEVICE;
 try { DEVICE = localStorage.getItem('chordColors.device'); if (!DEVICE) { DEVICE = 'd' + Math.random().toString(36).slice(2, 9); localStorage.setItem('chordColors.device', DEVICE); } } catch (e) { DEVICE = 'd0'; }
 applySound();
@@ -130,7 +132,7 @@ function mergeState(local, remote) {
   var out = clone(local);
   if (!remote || typeof remote !== 'object') return out;
   if ((remote.u || 0) > (local.u || 0)) {
-    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode','progSel','customProg','progView'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
+    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode','progSel','customProg','progView','mixSeed'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
     if (remote.ear) out.ear = fill(DEFAULT.ear, clone(remote.ear));
     out.u = remote.u;
   }
@@ -642,7 +644,32 @@ var ROW_TYPES = {
   major:{'3':C.DIATONIC.triad, '7':C.DIATONIC.seventh, 'n':C.DIATONIC.neo},
   minor:{'3':['min','dim','maj','min','maj','maj','maj'], '7':['min7','m7b5','maj7','min7','dom7','maj7','dom7'], 'n':['min9','m7b5','maj9','min11','dom7','maj9','dom9']}
 };
-var THREE = {'3':'maj', '7':'dom7', 'n':'dom7'};
+var THREE = {'3':'maj', '7':'dom7', 'n':'dom7', 'm':'dom7'};
+var PLAY_ROWS = {'m':{label:'Mixed'}, '3':{label:'Triads'}, '7':{label:'7ths'}, 'n':{label:'Neo soul'}};
+// mixed colors: each chord gets a color that fits its spot in the key, from a plain triad up to 11ths and 13ths
+var MIX = {
+  major:{1:['maj','maj7','maj9','add9'], 2:['min','min7','min9','min11'], 3:['min','min7','min11'], 4:['maj','maj7','maj9','add9'],
+    5:['maj','dom7','dom9','dom13','sus9'], 6:['min','min7','min9','min11'], 7:['dim','m7b5'], '3x':['dom7','dom9']},
+  minor:{1:['min','min7','min9','min11'], 2:['dim','m7b5'], 3:['maj','maj7','maj9'], 4:['min','min7','min9','min11'],
+    5:['maj','dom7'], 6:['maj','maj7','maj9'], 7:['maj','dom7','dom9'], '3x':['dom7']}
+};
+var TIER = {maj:0, min:0, dim:0, maj7:1, min7:1, dom7:1, m7b5:1, add9:2, maj9:2, min9:2, dom9:2, sus9:2, min11:3, dom13:3};
+function seeded(n) { return function () { n = (n + 0x6D2B79F5) | 0; var t = Math.imul(n ^ (n >>> 15), 1 | n); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// pick a color per chord: no two chords in a row at the same size, and at least one simple and one rich chord
+function mixTypes(seq, salt) {
+  var mode = keyMode(), rnd = seeded((S.mixSeed | 0) * 31 + salt * 7919 + (mode === 'minor' ? 17 : 0)), out = null;
+  for (var tries = 0; tries < 40; tries++) {
+    var prevTier = -1;
+    out = seq.map(function (d) {
+      var menu = MIX[mode][d] || ['maj'], ok = menu.filter(function (t) { return TIER[t] !== prevTier; });
+      if (!ok.length) ok = menu;
+      var t = ok[Math.floor(rnd() * ok.length)]; prevTier = TIER[t]; return t;
+    });
+    var tiers = out.map(function (t) { return TIER[t]; });
+    if (seq.length < 3 || (Math.min.apply(null, tiers) <= 1 && Math.max.apply(null, tiers) >= 2)) break;
+  }
+  return out;
+}
 var ROMANS = {major:['I','ii','iii','IV','V','vi','vii°'], minor:['i','ii°','III','iv','V','VI','VII']};
 var SCALES = {major:[0,2,4,5,7,9,11], minor:[0,2,3,5,7,8,10]};
 function keyMode() { return S.keyMode === 'minor' ? 'minor' : 'major'; }
@@ -654,10 +681,10 @@ var PROGS = [{seq:[1,6,4,5], note:'The 1 6 4 5. Doo wop and classic Motown run o
   {seq:[1,5,6,4], note:'The 1 5 6 4. Half of all pop songs. Learn it so you can spot it instantly.'},
   {seq:[6,4,1,5], note:'The 6 4 1 5. Same chords as above, starting on the 6, so it feels minor.'},
   {seq:[4,'3x',6], note:'The 4 3 6. The 3 turns into a dominant 7 instead of minor. That borrowed color is all over neo soul.'}];
-function degChord(deg, rowKey) {
+function degChord(deg, rowKey, forced) {
   var mode = keyMode(), i = (deg === '3x' ? 3 : deg) - 1, key = keyRootFor(S.root, mode);
   var root = {l:(key.l + i) % 7, pc:(key.pc + SCALES[mode][i]) % 12};
-  var type = deg === '3x' ? THREE[rowKey] : ROW_TYPES[mode][rowKey][i];
+  var type = forced || (deg === '3x' ? THREE[rowKey] || 'dom7' : (ROW_TYPES[mode][rowKey] || ROW_TYPES[mode]['7'])[i]);
   return {root:root, type:type, name:C.chordName(type, root), deg:deg === '3x' ? 3 : deg};
 }
 function renderWeek() {
@@ -683,7 +710,7 @@ function renderKey() {
   $('key-title').textContent = 'Key of ' + keyName();
   $('key-pick').innerHTML = '<div class="seg" aria-label="Major or minor">' + [['major','Major'],['minor','Minor']].map(function (o) { return '<button type="button" data-kmode="' + o[0] + '" aria-pressed="' + (mode === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
     '<div class="roots" role="group" aria-label="Key">' + ROOTS.map(function (r, i) { return '<button type="button" data-kkey="' + i + '" aria-pressed="' + (i === S.root) + '">' + nm(keyRootFor(i, mode)) + '</button>'; }).join('') + '</div>';
-  $('key-row-pick').innerHTML = Object.keys(ROWS).map(function (k) { return '<button type="button" data-krow="' + k + '" aria-pressed="' + (S.keyRow === k) + '">' + ROWS[k].label + '</button>'; }).join('');
+  $('key-row-pick').innerHTML = ['m', '3', '7', 'n'].map(function (k) { return '<button type="button" data-krow="' + k + '" aria-pressed="' + (S.keyRow === k) + '">' + PLAY_ROWS[k].label + '</button>'; }).join('');
   var cellH = function (d, k) { var c = degChord(d, k); return '<td><button type="button" class="cell" data-cell="' + k + '-' + d + '" style="--chord:var(--c-' + c.type + ')"><span class="dot"></span>' + esc(c.name) + '</button></td>'; };
   var tall = window.matchMedia('(max-width: 640px)').matches, h, d;
   if (tall) {
@@ -712,13 +739,15 @@ function progSel() {
 }
 function progItems(sel) {
   if (sel === 'custom') return S.customProg.filter(function (x) { return x && x.d >= 1 && x.d <= 7 && ROWS[x.r]; }).map(function (x) { return {deg:x.d, row:x.r}; });
-  return PROGS[+sel].seq.map(function (d) { return {deg:d, row:S.keyRow}; });
+  var seq = PROGS[+sel].seq;
+  if (!PLAY_ROWS[S.keyRow] || S.keyRow === 'm') { var ty = mixTypes(seq, +sel + 1); return seq.map(function (d, i) { return {deg:d, row:'m', type:ty[i]}; }); }
+  return seq.map(function (d) { return {deg:d, row:S.keyRow}; });
 }
 function fretPos(frets) { var f = frets.filter(function (x) { return x !== null; }); return f.reduce(function (a, b) { return a + b; }, 0) / (f.length || 1); }
 // one voicing path through the progression: voice led keys, and guitar shapes that stay near the last one
 function sheetData() {
   var sel = progSel(), items = progItems(sel);
-  var chords = items.map(function (it) { var c = degChord(it.deg, it.row); c.borrowed = it.deg === '3x'; c.row = it.row; return c; });
+  var chords = items.map(function (it) { var c = degChord(it.deg, it.row, it.type); c.borrowed = it.deg === '3x'; c.row = it.row === 'm' ? tableRow(c) : it.row; return c; });
   var voiced = chords.length ? C.voiceLead(chords.map(function (c) { return {pc:c.root.pc, type:c.type}; })) : [];
   var prev = null, gtr = chords.map(function (c) {
     var vs = C.guitarVoicings(c.type, c.root.pc), best = null, bc = Infinity;
@@ -738,7 +767,14 @@ function sheetData() {
   while (end % 12 !== 4 && end % 12 !== 11) end++;
   return {sel:sel, items:items, chords:chords, voiced:voiced, gtr:gtr, kStart:start, kLen:end - start + 1};
 }
-function romanFor(c) { return c.borrowed ? 'III7' : ROMANS[keyMode()][c.deg - 1]; }
+// which table row shows this exact chord, so playback can light it up
+function tableRow(c) {
+  if (c.borrowed) return null;
+  var R = ROW_TYPES[keyMode()], ks = ['3', '7', 'n'];
+  for (var k = 0; k < ks.length; k++) if (R[ks[k]][c.deg - 1] === c.type) return ks[k];
+  return null;
+}
+function romanFor(c) { return c.borrowed ? (c.type === 'dom9' ? 'III9' : 'III7') : ROMANS[keyMode()][c.deg - 1]; }
 function progTitle(D) {
   var nums = D.items.map(function (it) { return it.deg === '3x' ? '3' : it.deg; }).join(' ');
   return D.sel === 'custom' ? (D.items.length ? 'Your ' + nums : 'Your progression') : 'The ' + nums;
@@ -765,7 +801,7 @@ function pcardHTML(D, j) {
   return h + '</article>';
 }
 function renderSheet() {
-  var D = SHEET = sheetData(), mode = keyMode();
+  var D = SHEET = sheetData(), mixed = D.sel !== 'custom' && D.items.length && D.items[0].row === 'm';
   var bh = '';
   if (D.sel === 'custom') {
     bh = '<div class="builder"><div style="display:grid;gap:4px"><b>Build your own</b><span class="muted small">Tap chords in the table above to add them in order, up to ' + MAX_CUSTOM + '. Mix triads, 7ths and neo soul colors.</span></div>' +
@@ -776,15 +812,16 @@ function renderSheet() {
   $('prog-note').textContent = progNote(D);
   if (!D.chords.length) { $('sheet').innerHTML = ''; return; }
   $('sheet').innerHTML =
-    '<div class="sheet-head"><div style="display:grid;gap:2px;min-width:0"><h3>' + esc(progTitle(D)) + ' in ' + esc(keyName()) + '</h3><span class="muted small">' + D.chords.map(romanFor).join(' ') + '. Swipe through the chords, tap any diagram to hear it.</span></div>' +
+    '<div class="sheet-head"><div style="display:grid;gap:2px;min-width:0"><h3>' + esc(progTitle(D)) + ' in ' + esc(keyName()) + '</h3><span class="muted small">' + D.chords.map(romanFor).join(' ') + '. ' + (mixed ? 'Mixed colors, from plain triads up to 11ths and 13ths. Shuffle for a new mix.' : 'Swipe through the chords, tap any diagram to hear it.') + '</span></div>' +
     '<div class="row"><div class="seg" aria-label="Instrument">' + [['all','All'],['piano','Piano'],['guitar','Guitar'],['bass','Bass']].map(function (o) { return '<button type="button" data-pview="' + o[0] + '" aria-pressed="' + (S.progView === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
-    '<button type="button" class="btn primary" data-sheetplay="1">Play and follow along</button></div></div>' +
+    '<button type="button" class="btn primary" data-sheetplay="1">Play and follow along</button>' + (mixed ? '<button type="button" class="btn" data-mix="1">Shuffle colors</button>' : '') + '</div></div>' +
     '<div class="cards-row" id="cards-row">' + D.chords.map(function (c, j) { return pcardHTML(D, j); }).join('') + '</div>';
 }
 function markSheet(j) {
-  var D = SHEET, c = D.chords[j];
+  var D = SHEET, c = D && D.chords[j];
+  if (!c) return;
   document.querySelectorAll('.cell.now,.pcard.playing').forEach(function (x) { x.classList.remove('now'); x.classList.remove('playing'); });
-  var cell = document.querySelector('[data-cell="' + c.row + '-' + c.deg + '"]'); if (cell && !c.borrowed) cell.classList.add('now');
+  var cell = c.row && document.querySelector('[data-cell="' + c.row + '-' + c.deg + '"]'); if (cell && !c.borrowed) cell.classList.add('now');
   var card = $('pcard-' + j), row = $('cards-row');
   if (card) {
     card.classList.add('playing');
@@ -933,7 +970,7 @@ document.addEventListener('click', function (e) {
   }
   if (d.ab) { if (d.ab === 'flip') flipAB(); else { var gg = AU.newBus(); if (gg) AU.block(gg, C.pianoMidis(d.ab === 'a' ? S.ab.a : S.ab.b, ROOTS[S.root].pc), AU.now()); } return; }
   if (d.pair !== undefined) { var p = PAIRS[+d.pair]; S.ab.a = p[0]; S.ab.b = p[1]; save('settings'); renderEarSide(); flipAB(); return; }
-  if (d.krow) { S.keyRow = d.krow; save('settings'); renderKey(); return; }
+  if (d.krow) { S.keyRow = d.krow; save('settings'); AU.stopAll(clearPlaying); renderKey(); return; }
   if (d.kkey !== undefined) {
     S.root = +d.kkey; save('settings'); AU.stopAll(clearPlaying);
     renderRoots(); renderPalette(); renderLibrary(); renderKey(); if (curMode() === 'colors') renderEarSide();
@@ -956,6 +993,7 @@ document.addEventListener('click', function (e) {
   if (d.bclear) { S.customProg = []; save('settings'); AU.stopAll(clearPlaying); renderSheet(); return; }
   if (d.pview) { S.progView = d.pview; save('settings'); renderSheet(); return; }
   if (d.sheetplay) { playSheet(); return; }
+  if (d.mix) { S.mixSeed = Math.floor(Math.random() * 1e9); save('settings'); renderSheet(); playSheet(); return; }
   if (d.pinst && SHEET && SHEET.chords[+d.pc]) {
     var pj = +d.pc, pcd = SHEET.chords[pj], gp = AU.newBus(clearPlaying); if (!gp) return;
     var tp = AU.now();

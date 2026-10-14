@@ -180,12 +180,21 @@ var DIATONIC = {
 var MINOR = {'1':{s:0,t:['min','min7']},'2':{s:2,t:['dim','m7b5']},'b3':{s:3,t:['maj','maj7']},'4':{s:5,t:['min','min7']},
   '5':{s:7,t:['maj','dom7']},'b6':{s:8,t:['maj','maj7']},'b7':{s:10,t:['maj','dom7']}};
 function chordTones(id) { var out = []; TYPES[id].formula.forEach(function (l) { var x = IV[l][0] % 12; if (out.indexOf(x) < 0) out.push(x); }); return out; }
+// right hand tones for progressions. The left hand already has the root, so bigger chords drop it,
+// then drop the 5th, which keeps the right hand at 3 or 4 notes (triads keep all three)
+function voiceTones(id) {
+  var t = chordTones(id);
+  if (t.length <= 3) return t;
+  t = t.filter(function (x) { return x !== 0; });
+  if (t.length > 4) t = t.filter(function (x) { return x !== 7; });
+  return t;
+}
 // voice lead chords: keep the upper notes close to the previous chord
 function voiceLead(chords, opts) {
   opts = opts || {};
   var prev = null, out = [];
   chords.forEach(function (c) {
-    var pcs = chordTones(c.type).map(function (x) { return (c.pc + x) % 12; });
+    var pcs = voiceTones(c.type).map(function (x) { return (c.pc + x) % 12; });
     var lo = 55, hi = 79, best = null, bestCost = Infinity;
     for (var inv = 0; inv < pcs.length; inv++) {
       for (var oct = 0; oct < 2; oct++) {
@@ -429,7 +438,7 @@ window.CC = {
   DIATONIC:DIATONIC, MINOR:MINOR,
   nm:nm, up:up, fmt:fmt, mtof:mtof, rnd:rnd, pick:pick, rootMidi:rootMidi, chordName:chordName, shortSym:shortSym, labelFor:labelFor,
   guitarPos:guitarPos, guitarVoicings:guitarVoicings, voicingMidis:voicingMidis, lowestVoicing:lowestVoicing,
-  bassBox:bassBox, bassArp:bassArp, pianoMidis:pianoMidis, variedVoicing:variedVoicing, degreeRoot:degreeRoot, chordTones:chordTones, voiceLead:voiceLead,
+  bassBox:bassBox, bassArp:bassArp, pianoMidis:pianoMidis, variedVoicing:variedVoicing, degreeRoot:degreeRoot, chordTones:chordTones, voiceTones:voiceTones, voiceLead:voiceLead,
   audio:{ac:ac, newBus:newBus, stopAll:stopAll, later:later, now:now, block:block, arp:arp, strum:strum, bassNote:bassNote, drone:drone, keyNote:keyNote, setVolume:setVolume, setSound:setSound, setGuitar:setGuitar, setBass:setBass, preload:preload, loadSet:loadSet, isReady:isReady, isLoading:isLoading, SETS:SETS, ctx:function () { return A && A.ctx; }},
   svg:{piano:pianoSVG, keys:keysSVG, guitar:guitarSVG, bass:bassSVG}
 };
