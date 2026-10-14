@@ -69,7 +69,8 @@ var TYPES = {
   gE:[0,null,0,0,-1,null],gA:[null,0,1,0,1,null],gD:[null,null,0,1,1,1],
   sounds:'Shadowy and unstable. Mysterious, wants to fall somewhere.',listen:'The flat 5. A minor chord gone slightly off.',lives:'The 7 in a major key. The 2 in a minor key 2 5 1.',
   tip:function(r){return nm(up(r,'b3'))+'m triad with '+nm(r)+' in the bass.';}},
- dim:{name:'Diminished',sym:'dim',level:0,formula:['1','b3','b5'],piano:[['1',0],['1',12],['b3',15],['b5',18]],lh:1}
+ dim:{name:'Diminished',sym:'dim',level:0,formula:['1','b3','b5'],piano:[['1',0],['1',12],['b3',15],['b5',18]],lh:1,
+  gE:[0,1,2,0,null,null],gA:[null,0,1,2,1,null],gD:[null,null,0,1,3,1]}
 };
 var ORDER = ['maj','min','maj7','min7','dom7','add9','maj9','min9','dom9','dom13','min11','sus9','m7b5'];
 // Open position chords in the easy keys, keyed by root pitch class
@@ -377,8 +378,13 @@ var WHITE = {0:1,2:1,4:1,5:1,7:1,9:1,11:1};
 function pianoSVG(id, pc) {
   var T = TYPES[id], rm = rootMidi(pc), on = {};
   T.piano.forEach(function (p, i) { on[rm + p[1]] = {lab:p[0], lh:i < T.lh}; });
-  var back = pc >= 5 ? pc - 5 : pc, start = rm - back, W = 20, H = 92, BW = 12, BH = 58, wi = 0, wh = [], bl = [];
-  for (var m = start; m < start + 32; m++) { var k = m % 12; if (WHITE[k]) { wh.push({m:m, x:wi * W}); wi++; } else bl.push({m:m, x:wi * W - BW / 2}); }
+  var back = pc >= 5 ? pc - 5 : pc;
+  return keysSVG(on, rm - back, 32);
+}
+// a keyboard from `start` for `len` keys with highlighted notes {midi: {lab, lh}}
+function keysSVG(on, start, len) {
+  var W = 20, H = 92, BW = 12, BH = 58, wi = 0, wh = [], bl = [];
+  for (var m = start; m < start + len; m++) { var k = m % 12; if (WHITE[k]) { wh.push({m:m, x:wi * W}); wi++; } else bl.push({m:m, x:wi * W - BW / 2}); }
   var s = '<svg viewBox="0 0 ' + (wi * W + 1) + ' ' + (H + 1) + '" aria-hidden="true">';
   wh.forEach(function (w) { var o = on[w.m]; s += '<rect class="wk' + (o ? (o.lh ? ' lh' : ' on') : '') + '" x="' + (w.x + 0.5) + '" y="0.5" width="' + W + '" height="' + H + '" rx="2"/>'; if (o) s += '<text class="kl" x="' + (w.x + W / 2 + 0.5) + '" y="' + (H - 9) + '">' + fmt(o.lab) + '</text>'; });
   bl.forEach(function (b) { var o = on[b.m]; s += '<rect class="bk' + (o ? (o.lh ? ' lh' : ' on') : '') + '" x="' + (b.x + 0.5) + '" y="0.5" width="' + BW + '" height="' + BH + '" rx="1.5"/>'; if (o) s += '<text class="kl" x="' + (b.x + BW / 2 + 0.5) + '" y="' + (BH - 8) + '" style="font-size:7.5px">' + fmt(o.lab) + '</text>'; });
@@ -425,6 +431,6 @@ window.CC = {
   guitarPos:guitarPos, guitarVoicings:guitarVoicings, voicingMidis:voicingMidis, lowestVoicing:lowestVoicing,
   bassBox:bassBox, bassArp:bassArp, pianoMidis:pianoMidis, variedVoicing:variedVoicing, degreeRoot:degreeRoot, chordTones:chordTones, voiceLead:voiceLead,
   audio:{ac:ac, newBus:newBus, stopAll:stopAll, later:later, now:now, block:block, arp:arp, strum:strum, bassNote:bassNote, drone:drone, keyNote:keyNote, setVolume:setVolume, setSound:setSound, setGuitar:setGuitar, setBass:setBass, preload:preload, loadSet:loadSet, isReady:isReady, isLoading:isLoading, SETS:SETS, ctx:function () { return A && A.ctx; }},
-  svg:{piano:pianoSVG, guitar:guitarSVG, bass:bassSVG}
+  svg:{piano:pianoSVG, keys:keysSVG, guitar:guitarSVG, bass:bassSVG}
 };
 })();

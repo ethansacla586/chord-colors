@@ -31,6 +31,7 @@ var DEFAULT = {
   log:{},
   weeks:{start:'2026-10-12', stays:[], skips:[], u:0, notes:{}},
   ab:{a:'maj7', b:'dom7'}, keyRow:'7', keyMode:'major',
+  progSel:'0', customProg:[], progView:'all',
   sync:{token:'', gist:'', last:0, err:''}
 };
 function fill(def, val) {
@@ -129,7 +130,7 @@ function mergeState(local, remote) {
   var out = clone(local);
   if (!remote || typeof remote !== 'object') return out;
   if ((remote.u || 0) > (local.u || 0)) {
-    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
+    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode','progSel','customProg','progView'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
     if (remote.ear) out.ear = fill(DEFAULT.ear, clone(remote.ear));
     out.u = remote.u;
   }
@@ -252,6 +253,7 @@ function renderPalette() {
 function clearPlaying() {
   document.querySelectorAll('.card.playing').forEach(function (c) { c.classList.remove('playing'); });
   document.querySelectorAll('.cell.now').forEach(function (c) { c.classList.remove('now'); });
+  document.querySelectorAll('.pcard.playing').forEach(function (c) { c.classList.remove('playing'); });
 }
 function markCard(id, ms) {
   var el = $('card-' + id); if (!el) return;
@@ -693,27 +695,131 @@ function renderKey() {
   }
   $('deg').className = 'deg' + (tall ? ' tall' : '');
   $('deg').innerHTML = h + '</tbody>';
-  $('progs').innerHTML = PROGS.map(function (p, i) { if (mode === 'minor' && p.seq.indexOf('3x') >= 0) return ''; return '<button type="button" class="btn" data-prog="' + i + '">' + p.seq.map(function (x) { return x === '3x' ? '3' : x; }).join(' ') + '</button>'; }).join('');
+  var sel = progSel();
+  $('progs').innerHTML = PROGS.map(function (p, i) { if (mode === 'minor' && p.seq.indexOf('3x') >= 0) return ''; return '<button type="button" class="btn" data-prog="' + i + '" aria-pressed="' + (sel === String(i)) + '">' + p.seq.map(function (x) { return x === '3x' ? '3' : x; }).join(' ') + '</button>'; }).join('') +
+    '<button type="button" class="btn build" data-prog="custom" aria-pressed="' + (sel === 'custom') + '">Build your own</button>';
+  renderSheet();
 }
 function showNow(c, extra) { $('now').innerHTML = '<span class="num">' + c.deg + '</span><span class="nm">' + esc(c.name) + '</span><span class="muted small">' + esc(extra || TYPES[c.type].name) + '</span>'; }
-function playProg(i) {
-  var p = PROGS[i], k = S.keyRow, mode = keyMode(), g = AU.newBus(clearPlaying); if (!g) return;
-  var t = AU.now(), step = 1.3, list = p.seq.concat(p.seq);
-  $('prog-note').textContent = mode === 'minor'
+/* ---------- progression chord sheet: piano, guitar and bass for every chord ---------- */
+var MAX_CUSTOM = 8, SHEET = null;
+function progSel() {
+  var s = String(S.progSel);
+  if (s === 'custom') return s;
+  var p = PROGS[+s];
+  if (!p || (keyMode() === 'minor' && p.seq.indexOf('3x') >= 0)) return '0';
+  return s;
+}
+function progItems(sel) {
+  if (sel === 'custom') return S.customProg.filter(function (x) { return x && x.d >= 1 && x.d <= 7 && ROWS[x.r]; }).map(function (x) { return {deg:x.d, row:x.r}; });
+  return PROGS[+sel].seq.map(function (d) { return {deg:d, row:S.keyRow}; });
+}
+function fretPos(frets) { var f = frets.filter(function (x) { return x !== null; }); return f.reduce(function (a, b) { return a + b; }, 0) / (f.length || 1); }
+// one voicing path through the progression: voice led keys, and guitar shapes that stay near the last one
+function sheetData() {
+  var sel = progSel(), items = progItems(sel);
+  var chords = items.map(function (it) { var c = degChord(it.deg, it.row); c.borrowed = it.deg === '3x'; c.row = it.row; return c; });
+  var voiced = chords.length ? C.voiceLead(chords.map(function (c) { return {pc:c.root.pc, type:c.type}; })) : [];
+  var prev = null, gtr = chords.map(function (c) {
+    var vs = C.guitarVoicings(c.type, c.root.pc), best = null, bc = Infinity;
+    if (!vs.length) return null;
+    if (prev === null) best = C.lowestVoicing(c.type, c.root.pc);
+    else vs.forEach(function (v) { var cost = Math.abs(fretPos(v.frets) - prev) + fretPos(v.frets) * 0.05; if (cost < bc) { bc = cost; best = v; } });
+    prev = fretPos(best.frets);
+    return best;
+  });
+  // one shared keyboard window for the right hand, so you can watch how little the hand moves
+  var lo = 60, hi = 60;
+  if (voiced.length) { lo = Infinity; hi = -Infinity; }
+  voiced.forEach(function (v) { v.slice(1).forEach(function (m) { if (m < lo) lo = m; if (m > hi) hi = m; }); });
+  var start = lo, end;
+  while (start % 12 !== 0 && start % 12 !== 5) start--;
+  end = Math.max(hi, start + 23);
+  while (end % 12 !== 4 && end % 12 !== 11) end++;
+  return {sel:sel, items:items, chords:chords, voiced:voiced, gtr:gtr, kStart:start, kLen:end - start + 1};
+}
+function romanFor(c) { return c.borrowed ? 'III7' : ROMANS[keyMode()][c.deg - 1]; }
+function progTitle(D) {
+  var nums = D.items.map(function (it) { return it.deg === '3x' ? '3' : it.deg; }).join(' ');
+  return D.sel === 'custom' ? (D.items.length ? 'Your ' + nums : 'Your progression') : 'The ' + nums;
+}
+function progNote(D) {
+  if (D.sel === 'custom') return D.items.length ? 'Your own progression in ' + keyName() + '. Tap more chords in the table to add them, up to ' + MAX_CUSTOM + '.' : '';
+  var p = PROGS[+D.sel];
+  return keyMode() === 'minor'
     ? 'The ' + p.seq.join(' ') + ' in ' + keyName() + ': ' + p.seq.map(function (d) { return ROMANS.minor[d - 1]; }).join(' ') + '. Same numbers, counted from the minor home chord.'
     : p.note;
-  var chords = list.map(function (deg) { return degChord(deg, k); });
-  var voiced = C.voiceLead(chords.map(function (c) { return {pc:c.root.pc, type:c.type}; }));
-  list.forEach(function (deg, j) {
-    var c = chords[j];
-    AU.block(g, voiced[j], t + j * step, 1.4, 0.008);
-    AU.later(function () {
-      document.querySelectorAll('.cell.now').forEach(function (x) { x.classList.remove('now'); });
-      var cell = document.querySelector('[data-cell="' + k + '-' + c.deg + '"]'); if (cell && deg !== '3x') cell.classList.add('now');
-      showNow(c, deg === '3x' ? 'Borrowed: the 3 played as a dominant 7' : null);
-    }, j * step * 1000);
+}
+function pcardHTML(D, j) {
+  var c = D.chords[j], T = TYPES[c.type], v = S.progView, cn = esc(c.name), h = '', on = {};
+  D.voiced[j].slice(1).forEach(function (m) { on[m] = {lab:C.labelFor(T, ((m - c.root.pc) % 12 + 12) % 12), lh:false}; });
+  h += '<article class="pcard" id="pcard-' + j + '" style="--chord:var(--c-' + c.type + ')">' +
+    '<div class="pcard-head"><span class="pnum">' + c.deg + '</span><div style="min-width:0"><b class="pname">' + cn + '</b><span class="tname">' + romanFor(c) + ' · ' + (c.borrowed ? 'Borrowed dominant' : T.name) + '</span></div></div>';
+  if (v === 'all' || v === 'piano') h += '<div class="inst">' + (v === 'all' ? '<span class="eyebrow">Piano</span>' : '') + '<button type="button" class="dia" data-pc="' + j + '" data-pinst="keys" aria-label="Play ' + cn + ' on piano">' + C.svg.keys(on, D.kStart, D.kLen) +
+    '<small><span class="lh-dot"></span>Left hand: ' + esc(nm(c.root)) + ' down low. Right hand: the colored keys.</small></button></div>';
+  if ((v === 'all' || v === 'guitar') && D.gtr[j]) h += '<div class="inst">' + (v === 'all' ? '<span class="eyebrow">Guitar</span>' : '') + '<button type="button" class="dia gtr-one" data-pc="' + j + '" data-pinst="guitar" aria-label="Strum ' + cn + '">' + C.svg.guitar(c.type, c.root.pc, D.gtr[j].frets) + '<small>' + D.gtr[j].label + '</small></button></div>';
+  if (v === 'all' || v === 'bass') {
+    var b = C.bassBox(c.type, c.root.pc);
+    h += '<div class="inst">' + (v === 'all' ? '<span class="eyebrow">Bass</span>' : '') + '<button type="button" class="dia bass-dia" data-pc="' + j + '" data-pinst="bass" aria-label="Play ' + cn + ' on bass">' + C.svg.bass(c.type, c.root.pc) + '<small>Root on the ' + (b.rs === 0 ? 'E' : 'A') + ' string, fret ' + b.rf + '. Outlined dot is where to start.</small></button></div>';
+  }
+  return h + '</article>';
+}
+function renderSheet() {
+  var D = SHEET = sheetData(), mode = keyMode();
+  var bh = '';
+  if (D.sel === 'custom') {
+    bh = '<div class="builder"><div style="display:grid;gap:4px"><b>Build your own</b><span class="muted small">Tap chords in the table above to add them in order, up to ' + MAX_CUSTOM + '. Mix triads, 7ths and neo soul colors.</span></div>' +
+      (D.chords.length ? '<div class="bchips">' + D.chords.map(function (c) { return '<span class="bchip" style="--chord:var(--c-' + c.type + ')"><span class="dot"></span><b>' + c.deg + '</b> ' + esc(c.name) + '</span>'; }).join('') + '</div>' : '') +
+      '<div class="row"><button type="button" class="btn" data-bundo="1"' + (D.chords.length ? '' : ' disabled') + '>Undo</button><button type="button" class="btn ghost" data-bclear="1"' + (D.chords.length ? '' : ' disabled') + '>Clear</button></div></div>';
+  }
+  $('builder').innerHTML = bh;
+  $('prog-note').textContent = progNote(D);
+  if (!D.chords.length) { $('sheet').innerHTML = ''; return; }
+  $('sheet').innerHTML =
+    '<div class="sheet-head"><div style="display:grid;gap:2px;min-width:0"><h3>' + esc(progTitle(D)) + ' in ' + esc(keyName()) + '</h3><span class="muted small">' + D.chords.map(romanFor).join(' ') + '. Swipe through the chords, tap any diagram to hear it.</span></div>' +
+    '<div class="row"><div class="seg" aria-label="Instrument">' + [['all','All'],['piano','Piano'],['guitar','Guitar'],['bass','Bass']].map(function (o) { return '<button type="button" data-pview="' + o[0] + '" aria-pressed="' + (S.progView === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
+    '<button type="button" class="btn primary" data-sheetplay="1">Play and follow along</button></div></div>' +
+    '<div class="cards-row" id="cards-row">' + D.chords.map(function (c, j) { return pcardHTML(D, j); }).join('') + '</div>';
+}
+function markSheet(j) {
+  var D = SHEET, c = D.chords[j];
+  document.querySelectorAll('.cell.now,.pcard.playing').forEach(function (x) { x.classList.remove('now'); x.classList.remove('playing'); });
+  var cell = document.querySelector('[data-cell="' + c.row + '-' + c.deg + '"]'); if (cell && !c.borrowed) cell.classList.add('now');
+  var card = $('pcard-' + j), row = $('cards-row');
+  if (card) {
+    card.classList.add('playing');
+    if (row && (card.offsetLeft < row.scrollLeft || card.offsetLeft + card.offsetWidth > row.scrollLeft + row.clientWidth)) {
+      row.scrollTo({left:Math.max(0, card.offsetLeft - 4), behavior:matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+    }
+  }
+  showNow(c, c.borrowed ? 'Borrowed: the 3 played as a dominant 7' : null);
+}
+function bassRoot(c) { var b = C.bassBox(c.type, c.root.pc); return C.OPENB[b.rs] + b.rf; }
+// play chord j of the sheet on the chosen instrument view at time t
+function sheetChord(g, j, t, view) {
+  var D = SHEET, c = D.chords[j];
+  if (view === 'guitar' && D.gtr[j]) AU.strum(g, C.voicingMidis(D.gtr[j].frets), t);
+  else if (view === 'bass') {
+    var m = bassRoot(c), tones = C.chordTones(c.type), nx = tones.indexOf(7) >= 0 ? 7 : tones.indexOf(6) >= 0 ? 6 : 12;
+    AU.block(g, D.voiced[j].slice(1), t, 1.4, 0.008);
+    AU.bassNote(g, m, t, 1, 0.6); AU.bassNote(g, m + nx, t + 0.65, 0.85, 0.55);
+  } else AU.block(g, D.voiced[j], t, 1.4, 0.008);
+}
+function playSheet() {
+  var D = SHEET; if (!D || !D.chords.length) return;
+  var g = AU.newBus(clearPlaying); if (!g) return;
+  var n = D.chords.length, reps = n <= 4 ? 2 : 1, step = 1.3, t = AU.now(), view = S.progView;
+  for (var r = 0; r < reps; r++) D.chords.forEach(function (c, j) {
+    var k = r * n + j;
+    sheetChord(g, j, t + k * step, view);
+    AU.later(function () { markSheet(j); }, k * step * 1000);
   });
-  AU.later(clearPlaying, list.length * step * 1000 + 600);
+  AU.later(clearPlaying, reps * n * step * 1000 + 600);
+}
+function playProg(sel) {
+  S.progSel = String(sel); save('settings');
+  renderKey();
+  if (SHEET.chords.length) playSheet();
 }
 
 /* ---------- practice tab ---------- */
@@ -835,8 +941,29 @@ document.addEventListener('click', function (e) {
     showNow(home); return;
   }
   if (d.kmode) { S.keyMode = d.kmode; save('settings'); AU.stopAll(clearPlaying); renderKey(); var hm = degChord(1, S.keyRow), gm = AU.newBus(clearPlaying); if (gm) AU.block(gm, C.pianoMidis(hm.type, hm.root.pc), AU.now()); showNow(hm); return; }
-  if (d.cell) { var parts = d.cell.split('-'), cc = degChord(+parts[1], parts[0]), g2 = AU.newBus(clearPlaying); if (!g2) return; AU.block(g2, C.pianoMidis(cc.type, cc.root.pc), AU.now()); b.classList.add('now'); AU.later(function () { b.classList.remove('now'); }, 1600); showNow(cc); return; }
-  if (d.prog !== undefined) { playProg(+d.prog); return; }
+  if (d.cell) {
+    var parts = d.cell.split('-'), cc = degChord(+parts[1], parts[0]);
+    if (progSel() === 'custom') {
+      if (S.customProg.length >= MAX_CUSTOM) toast('That is ' + MAX_CUSTOM + ' chords. Undo one to add another.');
+      else { S.customProg.push({d:+parts[1], r:parts[0]}); save('settings'); renderSheet(); toast('Added ' + cc.deg + ' ' + cc.name + '. That is ' + S.customProg.length + ' chord' + (S.customProg.length === 1 ? '' : 's') + '.'); }
+    }
+    var g2 = AU.newBus(clearPlaying); if (!g2) return; AU.block(g2, C.pianoMidis(cc.type, cc.root.pc), AU.now());
+    var cellNow = document.querySelector('[data-cell="' + d.cell + '"]'); if (cellNow) { cellNow.classList.add('now'); AU.later(function () { cellNow.classList.remove('now'); }, 1600); }
+    showNow(cc); return;
+  }
+  if (d.prog !== undefined) { playProg(d.prog); return; }
+  if (d.bundo) { S.customProg.pop(); save('settings'); AU.stopAll(clearPlaying); renderSheet(); return; }
+  if (d.bclear) { S.customProg = []; save('settings'); AU.stopAll(clearPlaying); renderSheet(); return; }
+  if (d.pview) { S.progView = d.pview; save('settings'); renderSheet(); return; }
+  if (d.sheetplay) { playSheet(); return; }
+  if (d.pinst && SHEET && SHEET.chords[+d.pc]) {
+    var pj = +d.pc, pcd = SHEET.chords[pj], gp = AU.newBus(clearPlaying); if (!gp) return;
+    var tp = AU.now();
+    if (d.pinst === 'guitar') sheetChord(gp, pj, tp, 'guitar');
+    else if (d.pinst === 'bass') C.bassArp(pcd.type, pcd.root.pc).forEach(function (m, i) { AU.bassNote(gp, m, tp + i * 0.32); });
+    else AU.block(gp, SHEET.voiced[pj], tp, 2.4, 0.008);
+    markSheet(pj); AU.later(clearPlaying, 2000); return;
+  }
   if (d.week) {
     var w = weekInfo();
     if (d.week === 'use') { S.root = w.keyIdx; S.rootWeek = w.idx; save('settings'); renderAll(); return; }

@@ -261,6 +261,25 @@ table.deg.tall{min-width:0}
 .now-playing .num{font-family:var(--font-display);font-size:40px;font-weight:800;line-height:1}
 .now-playing .nm{font-size:18px;font-weight:700}
 .prog-note{font-size:13.5px;color:var(--muted);max-width:70ch}
+.prog-row .btn[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.prog-row .btn.build{font-family:var(--font-body)}
+.prog-note:empty{display:none}
+.builder{display:grid;gap:12px;padding:14px 16px;border:1px dashed var(--key-edge);border-radius:14px}
+.bchips{display:flex;flex-wrap:wrap;gap:6px}
+.bchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px 5px 8px;font-size:13.5px;font-weight:600}
+.bchip .dot{width:11px;height:11px}
+.sheet{display:grid;gap:12px;min-width:0}
+.sheet:empty{display:none}
+.sheet-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:10px 16px}
+.sheet-head h3{font-family:var(--font-body);font-size:17px;font-weight:700}
+.cards-row{position:relative;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 8px;overscroll-behavior-x:contain}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-content:start;min-width:0;scroll-snap-align:start;transition:box-shadow .2s}
+.pcard.playing{box-shadow:0 0 0 2px var(--chord)}
+.pcard-head{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;border-left:4px solid var(--chord);padding-left:10px}
+.pnum{font-family:var(--font-display);font-size:34px;font-weight:800;line-height:1}
+.pname{display:block;font-size:20px;font-weight:800;letter-spacing:-.01em}
+.gtr-one svg{max-width:132px}
+.lh-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--lh);margin-right:5px;vertical-align:baseline}
 
 /* practice */
 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
@@ -349,6 +368,8 @@ ol.howto{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14px;color:va
   .week-key{font-size:38px}
   .wheel{grid-template-columns:repeat(6,minmax(0,1fr))}
   .gtr-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards-row{grid-auto-columns:84%}
+  .sheet-head .row{width:100%}
 }
 @media (min-width:761px){.tl-short{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
@@ -405,10 +426,12 @@ ol.howto{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14px;color:va
     </div>
     <div class="scroll"><table class="deg" id="deg"></table></div>
     <div class="prog">
-      <div style="display:grid;gap:4px"><h3 style="font-family:var(--font-body);font-size:17px">Progressions to know by sound</h3><p class="prog-note">Each one plays twice. Call out the numbers as they go by, then try it on bass before you look.</p></div>
+      <div style="display:grid;gap:4px"><h3 style="font-family:var(--font-body);font-size:17px">Progressions to know by sound</h3><p class="prog-note">Pick one to hear it and see every chord on piano, guitar and bass. Call out the numbers as they go by, then try it on bass before you look.</p></div>
       <div class="prog-row" id="progs"></div>
+      <div id="builder"></div>
       <div class="now-playing" id="now" aria-live="polite"><span class="muted small">Pick a progression to hear it here.</span></div>
       <p class="prog-note" id="prog-note"></p>
+      <div class="sheet" id="sheet"></div>
     </div>
   </section>
 
