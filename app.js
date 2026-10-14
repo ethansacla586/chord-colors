@@ -22,7 +22,7 @@ var DEFAULT = {
   v:1, u:0,
   root:0, rootWeek:-1, autoRoot:true,
   tab:'library', view:'all',
-  sound:'rhodes', volume:0.8, goal:45,
+  sound:'rhodes', guitarSound:'eguitar', bassSound:'bass', volume:0.8, goal:45,
   checks:{},
   ear:{mode:'colors', pool:[1,2], qroot:'any', qsound:'block', levels:{numbers:1, home:1, key:1, intervals:1}},
   stats:{colors:{}, numbers:{}, home:{}, key:{}, intervals:{}},
@@ -50,13 +50,25 @@ try { S = fill(DEFAULT, JSON.parse(localStorage.getItem(KEY) || 'null')); } catc
 if (!(S.root >= 0 && S.root < 12)) S.root = 0;
 var DEVICE;
 try { DEVICE = localStorage.getItem('chordColors.device'); if (!DEVICE) { DEVICE = 'd' + Math.random().toString(36).slice(2, 9); localStorage.setItem('chordColors.device', DEVICE); } } catch (e) { DEVICE = 'd0'; }
-AU.setVolume(S.volume); AU.setSound(S.sound);
+applySound();
 
 function saveLocal() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 function save(kind) {
   if (kind === 'settings') S.u = Date.now();
   saveLocal();
   if (S.sync.token && S.sync.gist) schedulePush(kind === 'soft' ? 60000 : 4000);
+}
+
+function applySound() {
+  AU.setVolume(S.volume); AU.setSound(S.sound); AU.setGuitar(S.guitarSound); AU.setBass(S.bassSound);
+  AU.preload([S.sound, S.guitarSound, S.bassSound]).then(function () { if (S.tab === 'settings') renderSettings(); });
+}
+function testSound(which) {
+  var g = AU.newBus(); if (!g) return;
+  var pc = ROOTS[S.root].pc, t = AU.now();
+  if (which === 'guitar') AU.strum(g, C.voicingMidis(C.lowestVoicing('maj9', pc).frets), t);
+  else if (which === 'bass') C.bassArp('min7', pc).forEach(function (m, i) { AU.bassNote(g, m, t + i * 0.3); });
+  else AU.arp(g, C.pianoMidis('maj9', pc), t);
 }
 
 /* ---------- toast ---------- */
@@ -117,7 +129,7 @@ function mergeState(local, remote) {
   var out = clone(local);
   if (!remote || typeof remote !== 'object') return out;
   if ((remote.u || 0) > (local.u || 0)) {
-    ['root','rootWeek','autoRoot','view','sound','volume','goal','ab','keyRow'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
+    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
     if (remote.ear) out.ear = fill(DEFAULT.ear, clone(remote.ear));
     out.u = remote.u;
   }
@@ -165,7 +177,7 @@ function applyRemote(content) {
   var keep = {sync:S.sync, tab:S.tab, recent:S.recent};
   var merged = mergeState(S, remote);
   S = fill(DEFAULT, merged); S.sync = keep.sync; S.tab = keep.tab; S.recent = keep.recent;
-  AU.setVolume(S.volume); AU.setSound(S.sound);
+  applySound();
   saveLocal();
 }
 function syncPull() {
@@ -447,7 +459,7 @@ var MODES = {
   play:function (g, t, how) {
     AU.block(g, Q.tonic, t, 1.6, 0.006);
     AU.drone(g, Q.kb + 12, t, how === 'home' ? 2.2 : 4.4);
-    if (how !== 'home') AU.bassNote(g, Q.note, t + 1.4, 1);
+    if (how !== 'home') AU.bassNote(g, Q.note, t + 1.4, 1, 2.6);
   },
   answers:function () {
     return '<div class="answers nums">' + this.pool().map(function (d) {
@@ -721,11 +733,15 @@ function renderPractice() {
 
 /* ---------- settings tab ---------- */
 function renderSettings() {
+  var seg = function (key, opts) { return '<div class="seg">' + opts.map(function (o) { return '<button type="button" data-snd="' + key + ':' + o[0] + '" aria-pressed="' + (S[key] === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>'; };
+  var stat = function (name) { return AU.SETS[name] ? (AU.isReady(name) ? '' : AU.isLoading(name) ? ' <span class="muted small">loading…</span>' : '') : ''; };
   $('set-sound').innerHTML = '<h3>Sound</h3>' +
-    '<div class="field"><span class="lab">Chord sound</span><div class="seg">' + [['rhodes','Rhodes'],['piano','Grand piano']].map(function (o) { return '<button type="button" data-sound="' + o[0] + '" aria-pressed="' + (S.sound === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div></div>' +
+    '<div class="field"><span class="lab">Keys' + stat(S.sound) + '</span>' + seg('sound', [['piano','Grand piano'],['rhodes','Rhodes'],['synth','Classic synth']]) + '</div>' +
+    '<div class="field"><span class="lab">Guitar' + stat(S.guitarSound) + '</span>' + seg('guitarSound', [['eguitar','Clean electric'],['aguitar','Acoustic'],['synth','Synth pluck']]) + '</div>' +
+    '<div class="field"><span class="lab">Bass' + stat(S.bassSound) + '</span>' + seg('bassSound', [['bass','Electric bass'],['synth','Synth bass']]) + '</div>' +
     '<div class="field"><label for="vol">Volume</label><input type="range" id="vol" min="0.1" max="1" step="0.05" value="' + S.volume + '"></div>' +
-    '<div><button type="button" class="btn" data-test="1">Test sound</button></div>' +
-    '<p class="help muted small">Guitar and bass always use the plucked string sound.</p>';
+    '<div class="row"><button type="button" class="btn" data-test="keys">Test keys</button><button type="button" class="btn" data-test="guitar">Test guitar</button><button type="button" class="btn" data-test="bass">Test bass</button></div>' +
+    '<p class="help muted small">The real instrument sounds download the first time you use them, then work offline.</p>';
   var w = weekInfo();
   $('set-practice').innerHTML = '<h3>Practice</h3>' +
     '<div class="field"><span class="lab">Daily goal</span><div class="stepper"><button type="button" class="btn" data-goal="-5" aria-label="Lower goal">−5</button><b>' + S.goal + '</b><button type="button" class="btn" data-goal="5" aria-label="Raise goal">+5</button><span class="muted small">minutes</span></div></div>' +
@@ -734,7 +750,9 @@ function renderSettings() {
   renderSync();
   $('set-data').innerHTML = '<h3>Reset</h3><p class="muted small">These cannot be undone. If sync is on, the reset spreads to your other devices.</p>' +
     '<div class="row"><button type="button" class="btn" data-reset="stats">Reset ear stats</button><button type="button" class="btn" data-reset="checks">Clear the I can checks</button></div>' +
-    '<p class="muted small">Chord Colors 2.0</p>';
+    '<p class="muted small">Chord Colors 2.1</p>' +
+    '<details class="credits"><summary class="small">Sound credits</summary><p class="muted small">Grand piano: <a href="https://archive.org/details/SalamanderGrandPianoV3" target="_blank" rel="noopener">Salamander Grand Piano V3</a> by Alexander Holm, licensed <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC BY 3.0</a>. Trimmed and converted to MP3.</p>' +
+    '<p class="muted small">Rhodes, guitars and bass: rendered from the MuseScore General SoundFont by S. Christian Collins, built on Fluid R3 by Frank Wen. MIT license. Full license text is in samples/CREDITS.txt.</p></details>';
 }
 function renderSync() {
   var el = $('set-sync'); if (!el) return;
@@ -804,8 +822,8 @@ document.addEventListener('click', function (e) {
   }
   if (d.log) { var en = dayEntry(logDay, true); en.m[d.log] = Math.max(0, (en.m[d.log] || 0) + (+d.amt)); en.u = Date.now(); save(); renderPractice(); return; }
   if (d.day) { var nd = addDays(logDay, +d.day); if (daysBetween(nd, dayKey()) >= 0) { logDay = nd; renderPractice(); } return; }
-  if (d.sound) { S.sound = d.sound; AU.setSound(S.sound); save('settings'); renderSettings(); var gs = AU.newBus(); if (gs) AU.block(gs, C.pianoMidis('maj9', 0), AU.now()); return; }
-  if (d.test) { var gt = AU.newBus(); if (gt) AU.arp(gt, C.pianoMidis('maj9', ROOTS[S.root].pc), AU.now()); return; }
+  if (d.snd) { AU.ac(); var kv = d.snd.split(':'); S[kv[0]] = kv[1]; save('settings'); applySound(); renderSettings(); AU.loadSet(kv[1]).then(function () { renderSettings(); testSound(kv[0] === 'sound' ? 'keys' : kv[0] === 'guitarSound' ? 'guitar' : 'bass'); }); return; }
+  if (d.test) { AU.ac(); testSound(d.test); return; }
   if (d.goal) { S.goal = Math.max(10, Math.min(240, S.goal + (+d.goal))); save('settings'); renderSettings(); return; }
   if (d.sync) {
     if (d.sync === 'connect') { var tok = $('tok').value; if (!tok.trim()) { toast('Paste your GitHub token first.'); return; } syncConnect(tok); }

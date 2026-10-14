@@ -1,5 +1,5 @@
 // Chord Colors offline cache. Change VERSION whenever you upload new files so phones pick up the update.
-const VERSION = 'chord-colors-v3';
+const VERSION = 'chord-colors-v4';
 const ASSETS = [
   "./",
   "index.html",
@@ -43,6 +43,11 @@ self.addEventListener('fetch', (e) => {
         .then((res) => { const copy = res.clone(); caches.open(VERSION).then((c) => c.put('index.html', copy)); return res; })
         .catch(() => caches.match('index.html'))
     );
+    return;
+  }
+  // Instrument samples never change: cache first, no refresh.
+  if (new URL(req.url).pathname.includes('/samples/')) {
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; })));
     return;
   }
   // Scripts, fonts and icons: cache first, refresh in the background.

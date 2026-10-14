@@ -206,7 +206,7 @@ function voiceLead(chords, opts) {
 }
 
 /* ---------- sound ---------- */
-var A = null, bus = null, timers = [], ksCache = {}, settings = {sound:'rhodes', volume:0.8};
+var A = null, bus = null, timers = [], ksCache = {}, settings = {sound:'rhodes', guitar:'eguitar', bass:'bass', volume:0.8};
 function ac() {
   if (!A) {
     var C = window.AudioContext || window.webkitAudioContext; if (!C) return null;
@@ -223,6 +223,59 @@ function ac() {
 }
 function setVolume(v) { settings.volume = v; if (A) A.master.gain.setTargetAtTime(v, A.ctx.currentTime, 0.02); }
 function setSound(s) { settings.sound = s; }
+function setGuitar(s) { settings.guitar = s; }
+function setBass(s) { settings.bass = s; }
+
+/* ---------- sampled instruments ----------
+   Grand piano: Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0).
+   Rhodes, guitars and bass: rendered from the MuseScore General SoundFont (MIT).
+   Each set is sampled every 3 half steps; notes in between are pitched from the nearest sample. */
+var SETS = {
+  piano:{dir:'samples/piano/', notes:[33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90], gain:0.17, rel:0.3},
+  rhodes:{dir:'samples/rhodes/', notes:[36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90], gain:0.17, rel:0.35},
+  eguitar:{dir:'samples/eguitar/', notes:[39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87], gain:0.13, rel:0.25},
+  aguitar:{dir:'samples/aguitar/', notes:[39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87], gain:0.13, rel:0.25},
+  bass:{dir:'samples/bass/', notes:[27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66], gain:0.36, rel:0.15}
+};
+var BUF = {}, LOADING = {}, decCtx = null;
+function decoder() {
+  if (!decCtx) { var O = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (O) { try { decCtx = new O(1, 1, 44100); } catch (e) { decCtx = null; } } }
+  return decCtx;
+}
+function decode(ab) {
+  var dc = decoder();
+  return new Promise(function (res, rej) { if (!dc) { rej(new Error('no decoder')); return; } var p = dc.decodeAudioData(ab, res, rej); if (p && p.catch) p.catch(rej); });
+}
+function loadSet(name) {
+  if (BUF[name]) return Promise.resolve(true);
+  if (!SETS[name]) return Promise.resolve(false);
+  if (LOADING[name]) return LOADING[name];
+  var s = SETS[name];
+  LOADING[name] = Promise.all(s.notes.map(function (m) {
+    return fetch(s.dir + m + '.mp3').then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+      .then(decode).then(function (b) { return [m, b]; });
+  })).then(function (list) { var map = {}; list.forEach(function (x) { map[x[0]] = x[1]; }); BUF[name] = map; LOADING[name] = null; return true; })
+    .catch(function () { LOADING[name] = null; return false; });
+  return LOADING[name];
+}
+function preload(names) { return Promise.all(names.filter(function (n) { return SETS[n]; }).map(loadSet)); }
+function isReady(name) { return !!BUF[name]; }
+function isLoading(name) { return !!LOADING[name]; }
+function sampleNote(g, name, midi, t, dur, vel) {
+  var map = BUF[name], s = SETS[name];
+  if (!s) return false;
+  if (!map) { loadSet(name); return false; }
+  var best = s.notes[0];
+  s.notes.forEach(function (m) { if (Math.abs(m - midi) < Math.abs(best - midi)) best = m; });
+  var buf = map[best]; if (!buf) return false;
+  var ctx = A.ctx, src = ctx.createBufferSource(), rate = Math.pow(2, (midi - best) / 12);
+  src.buffer = buf; src.playbackRate.value = rate;
+  var amp = ctx.createGain(), pk = s.gain * vel, natural = buf.duration / rate, end = t + Math.min(dur, natural);
+  amp.gain.setValueAtTime(0.0001, t); amp.gain.linearRampToValueAtTime(pk, t + 0.004);
+  amp.gain.setValueAtTime(pk, Math.max(t + 0.005, end - 0.01)); amp.gain.exponentialRampToValueAtTime(0.0001, end + s.rel);
+  src.connect(amp); amp.connect(g); src.start(t); src.stop(end + s.rel + 0.05);
+  return true;
+}
 function impulse(ctx, sec, decay) {
   var len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
   for (var c = 0; c < 2; c++) { var d = b.getChannelData(c); for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay); }
@@ -279,7 +332,11 @@ function grand(g, midi, t, dur, vel) {
   ns.connect(bp); bp.connect(ng); ng.connect(lp); ns.start(t);
   lp.connect(out); out.connect(g);
 }
-function keyNote(g, midi, t, dur, vel) { (settings.sound === 'piano' ? grand : rhodes)(g, midi, t, dur, vel); }
+function keyNote(g, midi, t, dur, vel) {
+  var s = settings.sound;
+  if ((s === 'piano' || s === 'rhodes') && sampleNote(g, s, midi, t, dur, vel)) return;
+  (s === 'piano' ? grand : rhodes)(g, midi, t, dur, vel);
+}
 function ksBuf(midi) {
   if (ksCache[midi]) return ksCache[midi];
   var ctx = A.ctx, sr = ctx.sampleRate, f = mtof(midi), len = Math.floor(sr * (midi < 45 ? 3.5 : 3));
@@ -300,7 +357,7 @@ function pluck(g, midi, t, vel, cutoff) {
   var amp = ctx.createGain(); amp.gain.value = 0.17 * vel * (midi < 45 ? 1.6 : 1);
   s.connect(lp); lp.connect(amp); amp.connect(g); s.start(t);
 }
-function bassNote(g, midi, t, vel) { pluck(g, midi, t, vel || 1, 1500); }
+function bassNote(g, midi, t, vel, dur) { if (!(settings.bass !== 'synth' && sampleNote(g, 'bass', midi, t, dur || 0.9, vel || 1))) pluck(g, midi, t, vel || 1, 1500); }
 function drone(g, midi, t, dur) {
   var ctx = A.ctx;
   [[0, 0.07], [7, 0.045], [12, 0.03]].forEach(function (p) {
@@ -313,7 +370,7 @@ function drone(g, midi, t, dur) {
 }
 function block(g, midis, t, dur, roll) { midis.forEach(function (m, i) { keyNote(g, m, t + i * (roll || 0.012), dur || 2.4, i === 0 ? 0.95 : 0.8); }); }
 function arp(g, midis, t, step) { midis.forEach(function (m, i) { keyNote(g, m, t + i * (step || 0.17), 2.8, 0.85); }); return midis.length * (step || 0.17) + 2.4; }
-function strum(g, midis, t) { midis.forEach(function (m, i) { pluck(g, m, t + i * 0.028, 0.9); }); }
+function strum(g, midis, t) { midis.forEach(function (m, i) { var tt = t + i * 0.028; if (!(settings.guitar !== 'synth' && sampleNote(g, settings.guitar, m, tt, 2.6, 0.9))) pluck(g, m, tt, 0.9); }); }
 
 /* ---------- diagrams ---------- */
 var WHITE = {0:1,2:1,4:1,5:1,7:1,9:1,11:1};
@@ -367,7 +424,7 @@ window.CC = {
   nm:nm, up:up, fmt:fmt, mtof:mtof, rnd:rnd, pick:pick, rootMidi:rootMidi, chordName:chordName, shortSym:shortSym, labelFor:labelFor,
   guitarPos:guitarPos, guitarVoicings:guitarVoicings, voicingMidis:voicingMidis, lowestVoicing:lowestVoicing,
   bassBox:bassBox, bassArp:bassArp, pianoMidis:pianoMidis, variedVoicing:variedVoicing, degreeRoot:degreeRoot, chordTones:chordTones, voiceLead:voiceLead,
-  audio:{ac:ac, newBus:newBus, stopAll:stopAll, later:later, now:now, block:block, arp:arp, strum:strum, bassNote:bassNote, drone:drone, keyNote:keyNote, setVolume:setVolume, setSound:setSound, ctx:function () { return A && A.ctx; }},
+  audio:{ac:ac, newBus:newBus, stopAll:stopAll, later:later, now:now, block:block, arp:arp, strum:strum, bassNote:bassNote, drone:drone, keyNote:keyNote, setVolume:setVolume, setSound:setSound, setGuitar:setGuitar, setBass:setBass, preload:preload, loadSet:loadSet, isReady:isReady, isLoading:isLoading, SETS:SETS, ctx:function () { return A && A.ctx; }},
   svg:{piano:pianoSVG, guitar:guitarSVG, bass:bassSVG}
 };
 })();
