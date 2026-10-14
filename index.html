@@ -83,7 +83,8 @@ input[type="checkbox"]{width:20px;height:20px;accent-color:var(--ink)}
 .roots button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 0;font-weight:700;font-size:14px}
 .roots button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 body:not([data-tab="library"]) .mast-top,body:not([data-tab="library"]) .palette,body:not([data-tab="library"]) .sound-hint{display:none}
-body[data-tab="practice"] .mast,body[data-tab="settings"] .mast{display:none}
+body[data-tab="practice"] .mast,body[data-tab="settings"] .mast,body[data-tab="key"] .rootbar{display:none}
+body[data-tab="key"] .mast{padding-bottom:0;border-bottom:0}
 
 /* tabs */
 .tabs{display:flex;gap:2px;margin-top:18px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
@@ -234,6 +235,9 @@ kbd{font-family:var(--font-mono);font-size:11.5px;border:1px solid var(--line);b
 .check-row{display:flex;align-items:center;gap:10px;font-weight:600}
 .key-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px 24px;margin-bottom:16px}
 .key-head h2{font-size:28px;font-weight:800;letter-spacing:-.015em}
+.key-left{display:grid;gap:8px;flex:1 1 440px;min-width:0}
+.key-pick{display:grid;gap:8px;margin-top:4px}
+.key-pick .seg{justify-self:start}
 .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
 table.deg{border-collapse:collapse;width:100%;min-width:640px}
 table.deg.tall{min-width:0}
@@ -396,7 +400,7 @@ ol.howto{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14px;color:va
   <section class="panel" id="p-key" role="tabpanel" aria-labelledby="tab-key" hidden>
     <div class="week" id="week"></div>
     <div class="key-head">
-      <div style="display:grid;gap:6px"><h2 id="key-title">Key of C major</h2><p class="muted" style="max-width:60ch">The seven chords that live in this key, numbered. Tap any to hear it. Say the number out loud every time.</p></div>
+      <div class="key-left"><h2 id="key-title">Key of C major</h2><p class="muted" style="max-width:60ch">Pick any key. These are the seven chords that live in it, numbered. Tap any to hear it, and say the number out loud.</p><div class="key-pick" id="key-pick"></div></div>
       <div style="display:grid;gap:6px"><span class="eyebrow">Progressions play with</span><div class="seg" id="key-row-pick" aria-label="Progression colors"></div></div>
     </div>
     <div class="scroll"><table class="deg" id="deg"></table></div>

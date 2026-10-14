@@ -1,5 +1,5 @@
 // Chord Colors offline cache. Change VERSION whenever you upload new files so phones pick up the update.
-const VERSION = 'chord-colors-v4';
+const VERSION = 'chord-colors-v5';
 const ASSETS = [
   "./",
   "index.html",
@@ -22,7 +22,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

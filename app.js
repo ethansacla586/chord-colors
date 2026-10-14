@@ -30,7 +30,7 @@ var DEFAULT = {
   diff:{colors:0, numbers:0, home:0, key:0, intervals:0},
   log:{},
   weeks:{start:'2026-10-12', stays:[], skips:[], u:0, notes:{}},
-  ab:{a:'maj7', b:'dom7'}, keyRow:'7',
+  ab:{a:'maj7', b:'dom7'}, keyRow:'7', keyMode:'major',
   sync:{token:'', gist:'', last:0, err:''}
 };
 function fill(def, val) {
@@ -129,7 +129,7 @@ function mergeState(local, remote) {
   var out = clone(local);
   if (!remote || typeof remote !== 'object') return out;
   if ((remote.u || 0) > (local.u || 0)) {
-    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
+    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
     if (remote.ear) out.ear = fill(DEFAULT.ear, clone(remote.ear));
     out.u = remote.u;
   }
@@ -635,16 +635,27 @@ function flipAB() {
 }
 
 /* ---------- key tab ---------- */
-var ROWS = {'3':{label:'Triads', types:C.DIATONIC.triad, three:'maj'}, '7':{label:'7ths', types:C.DIATONIC.seventh, three:'dom7'}, 'n':{label:'Neo soul', types:C.DIATONIC.neo, three:'dom7'}};
-var ROMAN = ['I','ii','iii','IV','V','vi','vii°'];
+var ROWS = {'3':{label:'Triads'}, '7':{label:'7ths'}, 'n':{label:'Neo soul'}};
+var ROW_TYPES = {
+  major:{'3':C.DIATONIC.triad, '7':C.DIATONIC.seventh, 'n':C.DIATONIC.neo},
+  minor:{'3':['min','dim','maj','min','maj','maj','maj'], '7':['min7','m7b5','maj7','min7','dom7','maj7','dom7'], 'n':['min9','m7b5','maj9','min11','dom7','maj9','dom9']}
+};
+var THREE = {'3':'maj', '7':'dom7', 'n':'dom7'};
+var ROMANS = {major:['I','ii','iii','IV','V','vi','vii°'], minor:['i','ii°','III','iv','V','VI','VII']};
+var SCALES = {major:[0,2,4,5,7,9,11], minor:[0,2,3,5,7,8,10]};
+function keyMode() { return S.keyMode === 'minor' ? 'minor' : 'major'; }
+// minor keys read better as C sharp and G sharp than D flat and A flat
+function keyRootFor(idx, mode) { var r = ROOTS[idx]; if (mode === 'minor') { if (r.pc === 1) return {l:0, pc:1}; if (r.pc === 8) return {l:4, pc:8}; } return r; }
+function keyName() { return nm(keyRootFor(S.root, keyMode())) + ' ' + keyMode(); }
 var PROGS = [{seq:[1,6,4,5], note:'The 1 6 4 5. Doo wop and classic Motown run on this.'},
   {seq:[2,5,1], note:'The 2 5 1. The backbone of jazz, gospel and R&B. Hear how the 5 pulls home.'},
   {seq:[1,5,6,4], note:'The 1 5 6 4. Half of all pop songs. Learn it so you can spot it instantly.'},
   {seq:[6,4,1,5], note:'The 6 4 1 5. Same chords as above, starting on the 6, so it feels minor.'},
   {seq:[4,'3x',6], note:'The 4 3 6. The 3 turns into a dominant 7 instead of minor. That borrowed color is all over neo soul.'}];
 function degChord(deg, rowKey) {
-  var i = (deg === '3x' ? 3 : deg) - 1, root = C.degreeRoot(S.root, i + 1);
-  var type = deg === '3x' ? ROWS[rowKey].three : ROWS[rowKey].types[i];
+  var mode = keyMode(), i = (deg === '3x' ? 3 : deg) - 1, key = keyRootFor(S.root, mode);
+  var root = {l:(key.l + i) % 7, pc:(key.pc + SCALES[mode][i]) % 12};
+  var type = deg === '3x' ? THREE[rowKey] : ROW_TYPES[mode][rowKey][i];
   return {root:root, type:type, name:C.chordName(type, root), deg:deg === '3x' ? 3 : deg};
 }
 function renderWeek() {
@@ -666,8 +677,10 @@ function renderWeek() {
 function renderKey() {
   var ae = document.activeElement;
   if (!(ae && $('week').contains(ae) && /INPUT|TEXTAREA/.test(ae.tagName))) renderWeek();
-  var key = ROOTS[S.root];
-  $('key-title').textContent = 'Key of ' + nm(key) + ' major';
+  var mode = keyMode(), ROMAN = ROMANS[mode];
+  $('key-title').textContent = 'Key of ' + keyName();
+  $('key-pick').innerHTML = '<div class="seg" aria-label="Major or minor">' + [['major','Major'],['minor','Minor']].map(function (o) { return '<button type="button" data-kmode="' + o[0] + '" aria-pressed="' + (mode === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="roots" role="group" aria-label="Key">' + ROOTS.map(function (r, i) { return '<button type="button" data-kkey="' + i + '" aria-pressed="' + (i === S.root) + '">' + nm(keyRootFor(i, mode)) + '</button>'; }).join('') + '</div>';
   $('key-row-pick').innerHTML = Object.keys(ROWS).map(function (k) { return '<button type="button" data-krow="' + k + '" aria-pressed="' + (S.keyRow === k) + '">' + ROWS[k].label + '</button>'; }).join('');
   var cellH = function (d, k) { var c = degChord(d, k); return '<td><button type="button" class="cell" data-cell="' + k + '-' + d + '" style="--chord:var(--c-' + c.type + ')"><span class="dot"></span>' + esc(c.name) + '</button></td>'; };
   var tall = window.matchMedia('(max-width: 640px)').matches, h, d;
@@ -680,16 +693,20 @@ function renderKey() {
   }
   $('deg').className = 'deg' + (tall ? ' tall' : '');
   $('deg').innerHTML = h + '</tbody>';
-  $('progs').innerHTML = PROGS.map(function (p, i) { return '<button type="button" class="btn" data-prog="' + i + '">' + p.seq.map(function (x) { return x === '3x' ? '3' : x; }).join(' ') + '</button>'; }).join('');
+  $('progs').innerHTML = PROGS.map(function (p, i) { if (mode === 'minor' && p.seq.indexOf('3x') >= 0) return ''; return '<button type="button" class="btn" data-prog="' + i + '">' + p.seq.map(function (x) { return x === '3x' ? '3' : x; }).join(' ') + '</button>'; }).join('');
 }
 function showNow(c, extra) { $('now').innerHTML = '<span class="num">' + c.deg + '</span><span class="nm">' + esc(c.name) + '</span><span class="muted small">' + esc(extra || TYPES[c.type].name) + '</span>'; }
 function playProg(i) {
-  var p = PROGS[i], k = S.keyRow, g = AU.newBus(clearPlaying); if (!g) return;
+  var p = PROGS[i], k = S.keyRow, mode = keyMode(), g = AU.newBus(clearPlaying); if (!g) return;
   var t = AU.now(), step = 1.3, list = p.seq.concat(p.seq);
-  $('prog-note').textContent = p.note;
+  $('prog-note').textContent = mode === 'minor'
+    ? 'The ' + p.seq.join(' ') + ' in ' + keyName() + ': ' + p.seq.map(function (d) { return ROMANS.minor[d - 1]; }).join(' ') + '. Same numbers, counted from the minor home chord.'
+    : p.note;
+  var chords = list.map(function (deg) { return degChord(deg, k); });
+  var voiced = C.voiceLead(chords.map(function (c) { return {pc:c.root.pc, type:c.type}; }));
   list.forEach(function (deg, j) {
-    var c = degChord(deg, k);
-    AU.block(g, C.pianoMidis(c.type, c.root.pc), t + j * step, 1.4);
+    var c = chords[j];
+    AU.block(g, voiced[j], t + j * step, 1.4, 0.008);
     AU.later(function () {
       document.querySelectorAll('.cell.now').forEach(function (x) { x.classList.remove('now'); });
       var cell = document.querySelector('[data-cell="' + k + '-' + c.deg + '"]'); if (cell && deg !== '3x') cell.classList.add('now');
@@ -811,6 +828,13 @@ document.addEventListener('click', function (e) {
   if (d.ab) { if (d.ab === 'flip') flipAB(); else { var gg = AU.newBus(); if (gg) AU.block(gg, C.pianoMidis(d.ab === 'a' ? S.ab.a : S.ab.b, ROOTS[S.root].pc), AU.now()); } return; }
   if (d.pair !== undefined) { var p = PAIRS[+d.pair]; S.ab.a = p[0]; S.ab.b = p[1]; save('settings'); renderEarSide(); flipAB(); return; }
   if (d.krow) { S.keyRow = d.krow; save('settings'); renderKey(); return; }
+  if (d.kkey !== undefined) {
+    S.root = +d.kkey; save('settings'); AU.stopAll(clearPlaying);
+    renderRoots(); renderPalette(); renderLibrary(); renderKey(); if (curMode() === 'colors') renderEarSide();
+    var home = degChord(1, S.keyRow), gk = AU.newBus(clearPlaying); if (gk) AU.block(gk, C.pianoMidis(home.type, home.root.pc), AU.now());
+    showNow(home); return;
+  }
+  if (d.kmode) { S.keyMode = d.kmode; save('settings'); AU.stopAll(clearPlaying); renderKey(); var hm = degChord(1, S.keyRow), gm = AU.newBus(clearPlaying); if (gm) AU.block(gm, C.pianoMidis(hm.type, hm.root.pc), AU.now()); showNow(hm); return; }
   if (d.cell) { var parts = d.cell.split('-'), cc = degChord(+parts[1], parts[0]), g2 = AU.newBus(clearPlaying); if (!g2) return; AU.block(g2, C.pianoMidis(cc.type, cc.root.pc), AU.now()); b.classList.add('now'); AU.later(function () { b.classList.remove('now'); }, 1600); showNow(cc); return; }
   if (d.prog !== undefined) { playProg(+d.prog); return; }
   if (d.week) {
