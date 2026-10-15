@@ -4,7 +4,7 @@
 
 /* ---------- theory ---------- */
 var LETTERS = ['C','D','E','F','G','A','B'], LPC = [0,2,4,5,7,9,11];
-var IV = {'1':[0,0],'b3':[3,2],'3':[4,2],'4':[5,3],'b5':[6,4],'5':[7,4],'6':[9,5],'b7':[10,6],'7':[11,6],'9':[2,1],'11':[5,3],'13':[9,5]};
+var IV = {'1':[0,0],'b9':[1,1],'2':[2,1],'bb7':[9,6],'b3':[3,2],'3':[4,2],'4':[5,3],'b5':[6,4],'5':[7,4],'6':[9,5],'b7':[10,6],'7':[11,6],'9':[2,1],'11':[5,3],'13':[9,5]};
 var ROOTS = [[0,0],[1,1],[1,2],[2,3],[2,4],[3,5],[3,6],[4,7],[5,8],[5,9],[6,10],[6,11]].map(function (a) { return {l:a[0], pc:a[1]}; });
 var MAJ = [0,2,4,5,7,9,11];
 var FIFTHS = [0,7,2,9,4,11,6,1,8,3,10,5]; // circle of fifths order as root indexes
@@ -70,7 +70,22 @@ var TYPES = {
   sounds:'Shadowy and unstable. Mysterious, wants to fall somewhere.',listen:'The flat 5. A minor chord gone slightly off.',lives:'The 7 in a major key. The 2 in a minor key 2 5 1.',
   tip:function(r){return nm(up(r,'b3'))+'m triad with '+nm(r)+' in the bass.';}},
  dim:{name:'Diminished',sym:'dim',level:0,formula:['1','b3','b5'],piano:[['1',0],['1',12],['b3',15],['b5',18]],lh:1,
-  gE:[0,1,2,0,null,null],gA:[null,0,1,2,1,null],gD:[null,null,0,1,3,1]}
+  gE:[0,1,2,0,null,null],gA:[null,0,1,2,1,null],gD:[null,null,0,1,3,1]},
+ // songwriting colors (not in the library levels)
+ dim7:{name:'Diminished 7',sym:'dim7',level:0,formula:['1','b3','b5','bb7'],piano:[['1',0],['1',12],['b3',15],['b5',18],['bb7',21]],lh:1,
+  gE:[0,null,-1,0,-1,null],gA:[null,0,1,-1,1,null],gD:[null,null,0,1,0,1]},
+ dom7b9:{name:'Dominant 7 flat 9',sym:'7♭9',level:0,formula:['1','3','5','b7','b9'],piano:[['1',0],['3',16],['5',19],['b7',22],['b9',25]],lh:1,
+  gE:[0,-1,0,-2,0,null],gA:[null,0,-1,0,-1,null],gD:[null,null,0,-1,1,-1]},
+ six9:{name:'6/9',sym:'6/9',level:0,formula:['1','3','5','6','9'],piano:[['1',0],['5',7],['3',16],['6',21],['9',26]],lh:2,
+  gE:[0,-1,-1,-1,0,null],gA:[null,0,-1,-1,0,0],gD:[null,null,0,-1,0,0]},
+ sus2:{name:'Sus 2',sym:'sus2',level:0,formula:['1','2','5'],piano:[['1',0],['1',12],['2',14],['5',19]],lh:1,
+  gE:[0,2,4,4,null,null],gA:[null,0,2,2,0,0],gD:[null,null,0,2,3,0]},
+ sus4:{name:'Sus 4',sym:'sus4',level:0,formula:['1','4','5'],piano:[['1',0],['1',12],['4',17],['5',19]],lh:1,
+  gE:[0,2,2,2,0,0],gA:[null,0,2,2,3,0],gD:[null,null,0,2,3,3]},
+ maj6:{name:'Major 6',sym:'6',level:0,formula:['1','3','5','6'],piano:[['1',0],['1',12],['3',16],['5',19],['6',21]],lh:1,
+  gE:[0,null,-1,1,0,null],gA:[null,0,2,2,2,2],gD:[null,null,0,2,0,2]},
+ min6:{name:'Minor 6',sym:'m6',level:0,formula:['1','b3','5','6'],piano:[['1',0],['1',12],['b3',15],['5',19],['6',21]],lh:1,
+  gE:[0,null,-1,0,0,null],gA:[null,0,null,-1,1,0],gD:[null,null,0,2,0,1]}
 };
 var ORDER = ['maj','min','maj7','min7','dom7','add9','maj9','min9','dom9','dom13','min11','sus9','m7b5'];
 // Open position chords in the easy keys, keyed by root pitch class
@@ -85,7 +100,11 @@ var OPENS = {
  min9:{4:[0,2,0,0,0,2]},
  dom9:{4:[0,2,0,1,3,2]},
  dom13:{4:[0,null,0,1,2,0]},
- min11:{9:[null,0,0,0,1,0]}
+ min11:{9:[null,0,0,0,1,0]},
+ sus2:{2:[null,null,0,2,3,0],9:[null,0,2,2,0,0]},
+ sus4:{2:[null,null,0,2,3,3],4:[0,2,2,2,0,0],9:[null,0,2,2,3,0]},
+ maj6:{2:[null,null,0,2,0,2]},
+ min6:{2:[null,null,0,2,0,1]}
 };
 var OPEN = [40,45,50,55,59,64];       // guitar E A D G B e
 var OPENB = [28,33,38,43];            // bass E A D G
@@ -123,12 +142,16 @@ function lowestVoicing(id, pc) {
   return best;
 }
 // bass: chord tones in a 5 fret box, root on E string (or A string when the E string root sits high)
-function bassBox(id, pc) {
-  var T = TYPES[id], fE = ((pc - 4) % 12 + 12) % 12, fA = ((pc - 9) % 12 + 12) % 12;
+var SEMI_LAB = ['1','b9','9','b3','3','4','b5','5','b6','6','b7','7'];
+function bassBox(id, pc, bassPc) {
+  var T = TYPES[id], at = bassPc === undefined || bassPc === null ? pc : bassPc;
+  var fE = ((at - 4) % 12 + 12) % 12, fA = ((at - 9) % 12 + 12) % 12;
   var rs = fE <= 5 ? 0 : 1, rf = rs === 0 ? fE : fA;
   var start = Math.max(0, rf - 1), end = start + 4;
   var sem = {};
   T.formula.forEach(function (l) { sem[IV[l][0] % 12] = l; });
+  var bsemi = ((at - pc) % 12 + 12) % 12;
+  if (sem[bsemi] === undefined) sem[bsemi] = SEMI_LAB[bsemi];
   var dots = [];
   for (var s = 0; s < 4; s++) for (var f = start; f <= end; f++) {
     var semi = ((OPENB[s] + f - pc) % 12 + 12) % 12;
@@ -182,9 +205,15 @@ var MINOR = {'1':{s:0,t:['min','min7']},'2':{s:2,t:['dim','m7b5']},'b3':{s:3,t:[
 function chordTones(id) { var out = []; TYPES[id].formula.forEach(function (l) { var x = IV[l][0] % 12; if (out.indexOf(x) < 0) out.push(x); }); return out; }
 // right hand tones for progressions. The left hand already has the root, so bigger chords drop it,
 // then drop the 5th, which keeps the right hand at 3 or 4 notes (triads keep all three)
-function voiceTones(id) {
+function voiceTones(id, keepRoot) {
   var t = chordTones(id);
   if (t.length <= 3) return t;
+  if (keepRoot) {
+    // slash chords: the bass is not the root, so the right hand keeps it and trims the 5th, then the 9th
+    if (t.length > 4) t = t.filter(function (x) { return x !== 7; });
+    if (t.length > 4) t = t.filter(function (x) { return x !== 2; });
+    return t;
+  }
   t = t.filter(function (x) { return x !== 0; });
   if (t.length > 4) t = t.filter(function (x) { return x !== 7; });
   return t;
@@ -194,7 +223,8 @@ function voiceLead(chords, opts) {
   opts = opts || {};
   var prev = null, out = [];
   chords.forEach(function (c) {
-    var pcs = voiceTones(c.type).map(function (x) { return (c.pc + x) % 12; });
+    var slash = c.bass !== undefined && c.bass !== null && c.bass !== c.pc;
+    var pcs = voiceTones(c.type, slash).map(function (x) { return (c.pc + x) % 12; });
     var lo = 55, hi = 79, best = null, bestCost = Infinity;
     for (var inv = 0; inv < pcs.length; inv++) {
       for (var oct = 0; oct < 2; oct++) {
@@ -209,7 +239,7 @@ function voiceLead(chords, opts) {
       }
     }
     prev = best;
-    var bass = 36 + c.pc; if (bass > 45) bass -= 12;
+    var bass = 36 + (slash ? c.bass : c.pc); if (bass > 45) bass -= 12;
     out.push([bass].concat(best));
   });
   return out;
@@ -418,8 +448,8 @@ function guitarSVG(id, pc, frets) {
   });
   return s + '</svg>';
 }
-function bassSVG(id, pc) {
-  var b = bassBox(id, pc), open = b.start === 0, first = open ? 1 : b.start, cols = b.end - first + 1;
+function bassSVG(id, pc, bassPc) {
+  var b = bassBox(id, pc, bassPc), open = b.start === 0, first = open ? 1 : b.start, cols = b.end - first + 1;
   var x0 = open ? 44 : 30, fw = 44, y0 = 14, sy = 16, W = x0 + cols * fw + 10, H = y0 + 3 * sy + 26;
   var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">', i;
   for (i = 0; i <= cols; i++) { var x = x0 + i * fw; s += '<line class="' + (open && i === 0 ? 'g-nut' : 'g-fret') + '" x1="' + x + '" x2="' + x + '" y1="' + y0 + '" y2="' + (y0 + 3 * sy) + '"/>'; }

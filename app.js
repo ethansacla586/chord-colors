@@ -32,6 +32,7 @@ var DEFAULT = {
   weeks:{start:'2026-10-12', stays:[], skips:[], u:0, notes:{}},
   ab:{a:'maj7', b:'dom7'}, keyRow:'m', keyMode:'major',
   progSel:'0', customProg:[], progView:'all', mixSeed:1, mixOn:false,
+  songs:[], songId:'', write:{style:'neosoul', mode:'major', lift:true, view:'all', pane:'build', moveStyle:'all'},
   sync:{token:'', gist:'', last:0, err:''}
 };
 function fill(def, val) {
@@ -132,7 +133,7 @@ function mergeState(local, remote) {
   var out = clone(local);
   if (!remote || typeof remote !== 'object') return out;
   if ((remote.u || 0) > (local.u || 0)) {
-    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode','progSel','customProg','progView','mixSeed'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
+    ['root','rootWeek','autoRoot','view','sound','guitarSound','bassSound','volume','goal','ab','keyRow','keyMode','progSel','customProg','progView','mixSeed','write'].forEach(function (k) { if (remote[k] !== undefined) out[k] = clone(remote[k]); });
     if (remote.ear) out.ear = fill(DEFAULT.ear, clone(remote.ear));
     out.u = remote.u;
   }
@@ -150,6 +151,13 @@ function mergeState(local, remote) {
     var m = (b.u || 0) > (a.u || 0) ? clone(b.m || {}) : a.m;
     var app = clone(a.app || {}); Object.keys(b.app || {}).forEach(function (dv) { app[dv] = Math.max(app[dv] || 0, b.app[dv] || 0); });
     out.log[day] = {m:m, u:Math.max(a.u || 0, b.u || 0), app:app};
+  });
+  // songs: union by id, the newer edit wins (deleted songs keep a marker so they stay deleted)
+  out.songs = Array.isArray(out.songs) ? out.songs : [];
+  (Array.isArray(remote.songs) ? remote.songs : []).forEach(function (b) {
+    if (!b || !b.id) return;
+    for (var i = 0; i < out.songs.length; i++) if (out.songs[i] && out.songs[i].id === b.id) { if ((b.u || 0) > (out.songs[i].u || 0)) out.songs[i] = clone(b); return; }
+    out.songs.push(clone(b));
   });
   var rw = remote.weeks;
   if (rw) {
@@ -232,7 +240,7 @@ document.addEventListener('visibilitychange', function () {
 window.addEventListener('online', function () { if (S.sync.token && S.sync.gist) syncPull(); });
 
 /* ---------- rendering: shell ---------- */
-var TABS = ['library','ear','key','practice','settings'];
+var TABS = ['library','ear','key','write','practice','settings'];
 function setTab(t, push) {
   if (TABS.indexOf(t) < 0) t = 'library';
   if (S.tab !== t) AU.stopAll(clearPlaying);
@@ -241,6 +249,7 @@ function setTab(t, push) {
   TABS.forEach(function (x) { $('p-' + x).hidden = x !== t; var b = $('tab-' + x); b.setAttribute('aria-selected', String(x === t)); b.tabIndex = x === t ? 0 : -1; });
   if (t === 'practice') renderPractice();
   if (t === 'key') renderKey();
+  if (t === 'write' && window.CCWrite) CCWrite.render();
   if (push) { try { history.replaceState(null, '', '#' + t); } catch (e) {} window.scrollTo(0, 0); }
 }
 function renderRoots() {
@@ -255,7 +264,9 @@ function renderPalette() {
 function clearPlaying() {
   document.querySelectorAll('.card.playing').forEach(function (c) { c.classList.remove('playing'); });
   document.querySelectorAll('.cell.now').forEach(function (c) { c.classList.remove('now'); });
-  document.querySelectorAll('.pcard.playing').forEach(function (c) { c.classList.remove('playing'); });
+  document.querySelectorAll('.pcard.playing,.wsec.playing').forEach(function (c) { c.classList.remove('playing'); });
+  document.querySelectorAll('.wchip.now').forEach(function (c) { c.classList.remove('now'); });
+  if (window.CCWrite) { CCWrite.ui.playing = false; var wb = document.querySelector('[data-wplay="song"]'); if (wb) wb.textContent = 'Play song'; }
 }
 function markCard(id, ms) {
   var el = $('card-' + id); if (!el) return;
@@ -933,6 +944,7 @@ function renderAll() {
   applyWeekRoot();
   renderRoots(); renderPalette(); renderLibrary(); renderModes(); renderEar(); renderKey(); renderSettings();
   if (S.tab === 'practice') renderPractice();
+  if (S.tab === 'write' && window.CCWrite) CCWrite.render();
 }
 
 /* ---------- events ---------- */
@@ -1060,6 +1072,7 @@ window.addEventListener('hashchange', function () { var h = location.hash.slice(
 try { var mq = window.matchMedia('(max-width: 640px)'); var onMq = function () { renderKey(); }; if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq); } catch (e) {}
 if ('serviceWorker' in navigator && location.protocol !== 'file:') window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
 
+window.CCAPP = {S:function () { return S; }, save:save, toast:toast, esc:esc, keyRootFor:keyRootFor};
 var h0 = location.hash.slice(1);
 renderAll();
 setTab(TABS.indexOf(h0) >= 0 ? h0 : S.tab, false);
